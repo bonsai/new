@@ -8,11 +8,39 @@
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { background: #0d1117; overflow: hidden; }
-#terminal { width: 100vw; height: 100vh; padding: 4px; }
+#terminal { width: 100vw; height: calc(100vh - 28px); padding: 4px; }
+#statusbar {
+  position: fixed; bottom: 0; left: 0; right: 0; height: 28px;
+  background: #161b22; border-top: 1px solid #30363d;
+  display: flex; align-items: center; padding: 0 12px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 12px; color: #8b949e; gap: 16px;
+}
+#statusbar .label { color: #58a6ff; }
+#statusbar .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+#statusbar .dot-green { background: #3fb950; animation: pulse 2s infinite; }
+#statusbar .dot-yellow { background: #d29922; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+#statusbar .sep { color: #30363d; }
 </style>
 </head>
 <body>
 <div id="terminal"></div>
+<div id="statusbar">
+  <span><span class="dot dot-green"></span><span class="label">runner</span> github-actions</span>
+  <span class="sep">│</span>
+  <span><span class="label">workflow</span> update-feed.yml</span>
+  <span class="sep">│</span>
+  <span><span class="label">trigger</span> <span id="trigger">schedule</span></span>
+  <span class="sep">│</span>
+  <span><span class="label">repo</span> bonsai/new</span>
+  <span class="sep">│</span>
+  <span><span class="label">branch</span> gh-pages</span>
+  <span class="sep">│</span>
+  <span><span class="label">last run</span> <span id="lastrun">—</span></span>
+  <span class="sep">│</span>
+  <span><span class="label">next</span> <span id="nextrun">—</span></span>
+</div>
 <script>
 const term = new Terminal({
   fontSize: 13,
@@ -38,9 +66,8 @@ setTimeout(fit, 50);
 
 // --- helpers ---
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-async function typeChar(ch) { term.write(ch); await sleep(6 + Math.random() * 10); }
 async function typeLine(text) {
-  for (const ch of text) await typeChar(ch);
+  for (const ch of text) { term.write(ch); await sleep(5 + Math.random() * 8); }
   term.write('\r\n');
 }
 function green(s)  { return '\x1b[32m' + s + '\x1b[0m'; }
@@ -51,29 +78,33 @@ function cyan(s)   { return '\x1b[36m' + s + '\x1b[0m'; }
 function red(s)    { return '\x1b[31m' + s + '\x1b[0m'; }
 function magenta(s){ return '\x1b[35m' + s + '\x1b[0m'; }
 function bold(s)   { return '\x1b[1m' + s + '\x1b[0m'; }
+function autoScroll() { term.scrollToBottom(); }
 
-function autoScroll() {
-  term.scrollToBottom();
-}
-
-// --- data state ---
+// --- data ---
 let repos = [];
 let activities = [];
 let scope = {};
 
-// --- scope from DB (simulated from data.jsonl structure) ---
 async function loadScope() {
-  // scope definition derived from data structure
   scope = {
     source: 'repos.sqlite → data.jsonl',
     fields: ['folder_name', 'github_url', 'diff_status', 'similarity_score', 'deleted_at'],
     filters: ['identical', 'local_ahead', 'remote_ahead', 'diverged', 'no_remote'],
     agents: ['hoto', 'mito', 'opencode', 'hermes'],
-    metrics: ['total_deleted', 'synced_rate', 'activity_count']
+    runner: {
+      vm: 'GitHub Actions (Ubuntu Latest)',
+      os: 'Linux x64',
+      shell: 'bash',
+      workflow: 'update-feed.yml',
+      trigger: 'schedule (*/30 * * * *) + push + manual',
+      repo: 'bonsai/new',
+      branch: 'gh-pages',
+      scope: 'data.jsonl + log.jsonl のみ',
+      'repos.sqlite直接参照': 'しない（GH Pages配信経由）'
+    }
   };
 }
 
-// --- fetch data from GH Pages ---
 async function fetchData() {
   try {
     const r1 = await fetch('./data.jsonl?t=' + Date.now());
@@ -87,41 +118,57 @@ async function fetchData() {
   } catch(e) { activities = []; }
 }
 
-// --- boot sequence ---
+// --- boot ---
 async function boot() {
   term.clear();
   await typeLine('  🌿  sync-repos  ──  live terminal v2', magenta);
-  await typeLine('  ──────────────────────────────────────────', dim);
-  await sleep(300);
-  await typeLine('  $ ' + green('init'));
-  await sleep(200);
-  await typeLine('  loading scope from DB...');
-  await loadScope();
-  await sleep(300);
-  await typeLine('  ✓ scope: ' + cyan(scope.fields.length) + ' fields, ' + cyan(scope.filters.length) + ' filters');
-  await sleep(200);
-  await typeLine('  fetching data from GH Pages...');
-  await fetchData();
-  await sleep(400);
-  await typeLine('  ✓ repos: ' + green(String(repos.length)) + ' entries');
-  await typeLine('  ✓ activity: ' + cyan(String(activities.length)) + ' events');
-  await sleep(300);
-  term.writeln('');
-  await typeLine('  commands: ' + green('[s]') + ' scope  ' + green('[r]') + ' repos  ' + green('[a]') + ' activity  ' + green('[d]') + ' dashboard  ' + green('[q]') + ' quit');
-  term.writeln('');
+  await typeLine('  ───────────────────────────────────────────────', dim);
   await sleep(200);
 
-  // start random background tasks
+  await typeLine('  ' + dim('runner:') + '  github-actions (ubuntu-latest)');
+  await typeLine('  ' + dim('workflow:') + ' update-feed.yml');
+  await typeLine('  ' + dim('trigger:') + '  schedule */30, push, manual');
+  await typeLine('  ' + dim('repo:') + '    bonsai/new (gh-pages)');
+  await typeLine('  ' + dim('scope:') + '    data.jsonl + log.jsonl only');
+  await sleep(300);
+
+  await typeLine('  $ ' + green('init --scope'));
+  await loadScope();
+  await sleep(200);
+  await typeLine('  ✓ scope loaded: ' + cyan(scope.fields.length) + ' fields, ' + cyan(scope.agents.length) + ' agents');
+  await sleep(200);
+
+  await typeLine('  $ ' + green('fetch data.jsonl && log.jsonl'));
+  await fetchData();
+  await sleep(300);
+  await typeLine('  ✓ repos: ' + green(String(repos.length)) + ' entries');
+  await typeLine('  ✓ activity: ' + cyan(String(activities.length)) + ' events');
+  await sleep(200);
+
+  // whoami
+  await typeLine('  $ ' + green('whoami'));
+  await typeLine('  → runner: github-actions │ vm: ubuntu-latest │ shell: bash');
+  await typeLine('  → executing: update-feed.yml → log.jsonl generator');
+  await sleep(300);
+
+  term.writeln('');
+  await typeLine('  commands: ' + green('[s]') + ' scope  ' + green('[r]') + ' repos  ' + green('[a]') + ' activity  ' + green('[d]') + ' dashboard  ' + green('[w]') + ' whoami  ' + green('[q]') + ' quit');
+  term.writeln('');
+
+  // update status bar
+  document.getElementById('lastrun').textContent = new Date().toLocaleTimeString();
+  const next30 = new Date(Date.now() + 30 * 60000);
+  document.getElementById('nextrun').textContent = next30.toLocaleTimeString();
+
   startRandomTasks();
 }
 
-// --- random task runner ---
+// --- random tasks (GH Actions VM が実行している風) ---
 const taskNames = [
   'scan_repos', 'calc_similarity', 'judge_deletable', 'verify_push',
   'fetch_gh_events', 'report_diff', 'sync_db', 'check_rate_limit',
   'inventory_check', 'privacy_scan', 'naming_verify', 'backup_hormon'
 ];
-
 const agents = ['hoto', 'mito', 'opencode', 'hermes'];
 
 async function randomTask() {
@@ -135,8 +182,7 @@ async function randomTask() {
   term.writeln('');
   autoScroll();
 
-  // simulate output lines
-  const lines = 2 + Math.floor(Math.random() * 6);
+  const lines = 2 + Math.floor(Math.random() * 5);
   for (let i = 0; i < lines; i++) {
     await sleep(80 + Math.random() * 200);
     const outputs = [
@@ -144,14 +190,13 @@ async function randomTask() {
       () => '  ├─ diff: ' + cyan(String(Math.floor(Math.random() * 50))) + ' files changed',
       () => '  ├─ similarity: ' + yellow((Math.random() * 100).toFixed(1) + '%'),
       () => '  ├─ status: ' + green('identical'),
-      () => '  ├─ repo: ' + blue('bonsai/' + repos[Math.floor(Math.random() * repos.length)]?.github_name || 'unknown'),
+      () => '  ├─ repo: ' + blue('bonsai/' + (repos[Math.floor(Math.random() * repos.length)]?.github_name || 'unknown')),
       () => '  ├─ agent: ' + magenta(agent) + ' → ' + dim('next: ' + agents[Math.floor(Math.random() * agents.length)]),
       () => '  ├─ db: ' + (Math.random() > 0.5 ? green('updated') : dim('no changes')),
       () => '  ├─ confidence: ' + (Math.random() > 0.7 ? green((80 + Math.random() * 20).toFixed(0) + '%') : dim('—')),
       () => '  └─ ' + (Math.random() > 0.3 ? green('done') : yellow('partial')),
     ];
-    const out = outputs[Math.floor(Math.random() * outputs.length)]();
-    await typeLine(out);
+    await typeLine(outputs[Math.floor(Math.random() * outputs.length)]());
     autoScroll();
   }
   autoScroll();
@@ -173,13 +218,21 @@ async function showScope() {
   term.writeln('');
   await typeLine('  ── scope (from DB) ──', magenta);
   term.writeln('');
-  await typeLine('  source:    ' + yellow(scope.source));
-  await typeLine('  fields:    ' + scope.fields.map(f => cyan(f)).join(', '));
-  await typeLine('  filters:   ' + scope.filters.map(f => green(f)).join(', '));
-  await typeLine('  agents:    ' + scope.agents.map(a => cyan(a)).join(', '));
-  await typeLine('  metrics:   ' + scope.metrics.map(m => yellow(m)).join(', '));
+  await typeLine('  source:      ' + yellow(scope.source));
+  await typeLine('  fields:      ' + scope.fields.map(f => cyan(f)).join(', '));
+  await typeLine('  filters:     ' + scope.filters.map(f => green(f)).join(', '));
+  await typeLine('  agents:      ' + scope.agents.map(a => cyan(a)).join(', '));
   term.writeln('');
-  await typeLine('  data source: GH Pages → data.jsonl (repos), log.jsonl (activity)');
+  await typeLine('  ' + bold('runner'), magenta);
+  await typeLine('  vm:          ' + yellow(scope.runner.vm));
+  await typeLine('  os:          ' + dim(scope.runner.os));
+  await typeLine('  shell:       ' + dim(scope.runner.shell));
+  await typeLine('  workflow:    ' + cyan(scope.runner.workflow));
+  await typeLine('  trigger:     ' + dim(scope.runner.trigger));
+  await typeLine('  repo:        ' + blue(scope.runner.repo));
+  await typeLine('  branch:      ' + dim(scope.runner.branch));
+  await typeLine('  scope:       ' + yellow(scope.runner.scope));
+  await typeLine('  repos.sqlite: ' + red(scope.runner['repos.sqlite直接参照']));
   term.writeln('');
   autoScroll();
 }
@@ -197,9 +250,7 @@ async function showRepos() {
       yellow(score)
     );
   }
-  if (repos.length > 15) {
-    await typeLine(dim('  ... ' + (repos.length - 15) + ' more'));
-  }
+  if (repos.length > 15) await typeLine(dim('  ... ' + (repos.length - 15) + ' more'));
   term.writeln('');
   await typeLine('  total: ' + green(String(repos.length)) + ' deleted from local');
   term.writeln('');
@@ -215,9 +266,7 @@ async function showActivity() {
     const ts = (a.timestamp || '').slice(11, 19) || '--:--:--';
     await typeLine('  ' + dim(ts) + '  ' + cyan((a.agent || '?').padEnd(8)) + ' ' + green(a.event || a.message || 'unknown'));
   }
-  if (activities.length === 0) {
-    await typeLine(dim('  no activity — workflow will populate log.jsonl'));
-  }
+  if (activities.length === 0) await typeLine(dim('  no activity — workflow will populate log.jsonl'));
   term.writeln('');
   autoScroll();
 }
@@ -226,19 +275,15 @@ async function showDashboard() {
   term.writeln('');
   await typeLine('  ── dashboard ──', magenta);
   term.writeln('');
-
   const identical = repos.filter(r => r.diff_status === 'identical').length;
   const ahead = repos.filter(r => r.diff_status === 'local_ahead').length;
   const diverged = repos.filter(r => r.diff_status === 'diverged').length;
   const rate = repos.length > 0 ? (identical / repos.length * 100).toFixed(0) : 0;
-
   await typeLine('  synced repos:    ' + green(String(identical)) + ' / ' + repos.length + ' (' + yellow(rate + '%') + ')');
   await typeLine('  local ahead:     ' + yellow(String(ahead)));
   await typeLine('  diverged:        ' + red(String(diverged)));
   await typeLine('  activity events: ' + cyan(String(activities.length)));
   term.writeln('');
-
-  // bar chart
   const bar = (label, val, max, color) => {
     const w = 30;
     const filled = max > 0 ? Math.round(val / max * w) : 0;
@@ -249,10 +294,28 @@ async function showDashboard() {
   await typeLine(bar('local_ahead', ahead, maxVal, yellow));
   await typeLine(bar('diverged', diverged, maxVal, red));
   term.writeln('');
-
-  // latest
   await typeLine('  latest deletion: ' + (repos[repos.length - 1]?.folder_name || '—'));
   await typeLine('  last activity:  ' + (activities[activities.length - 1]?.timestamp || '—'));
+  term.writeln('');
+  autoScroll();
+}
+
+async function showWhoami() {
+  term.writeln('');
+  await typeLine('  ── whoami ──', magenta);
+  term.writeln('');
+  await typeLine('  runner:    ' + green('github-actions'));
+  await typeLine('  vm:        ' + yellow('ubuntu-latest (linux x64)'));
+  await typeLine('  shell:     ' + dim('bash'));
+  await typeLine('  workflow:  ' + cyan('update-feed.yml'));
+  await typeLine('  trigger:   ' + dim('schedule */30 * * * *'));
+  await typeLine('  repo:      ' + blue('bonsai/new'));
+  await typeLine('  branch:    ' + dim('gh-pages'));
+  await typeLine('  scope:     ' + yellow('data.jsonl + log.jsonl'));
+  await typeLine('  storage:   ' + dim('GH Pages (static)'));
+  term.writeln('');
+  await typeLine('  this terminal is driven by GH Actions VM');
+  await typeLine('  data flows: repos.sqlite → data.jsonl → GH Pages → browser');
   term.writeln('');
   autoScroll();
 }
@@ -264,48 +327,29 @@ let commandMode = false;
 term.onData(async (data) => {
   if (commandMode) return;
   const code = data.charCodeAt(0);
-
   if (code === 13) {
     commandMode = true;
     term.writeln('');
     const cmd = inputBuf.trim();
     inputBuf = '';
-
     if (cmd === 's' || cmd === 'scope') await showScope();
     else if (cmd === 'r' || cmd === 'repos') await showRepos();
     else if (cmd === 'a' || cmd === 'activity') await showActivity();
     else if (cmd === 'd' || cmd === 'dashboard') await showDashboard();
-    else if (cmd === 'q' || cmd === 'quit') {
-      await typeLine('  👋 bye', magenta);
-      term.dispose();
-      return;
-    } else if (cmd === 'clear' || cmd === 'c') {
-      term.clear();
-    } else if (cmd === 'help' || cmd === 'h') {
-      await typeLine('  [s]scope  [r]repos  [a]activity  [d]dashboard  [c]clear  [q]quit');
-    } else if (cmd) {
-      await typeLine('  unknown: ' + cmd + '  (h for help)', red);
-    }
-
+    else if (cmd === 'w' || cmd === 'whoami') await showWhoami();
+    else if (cmd === 'q' || cmd === 'quit') { await typeLine('  👋 bye', magenta); term.dispose(); return; }
+    else if (cmd === 'clear' || cmd === 'c') term.clear();
+    else if (cmd === 'help' || cmd === 'h') await typeLine('  [s]scope [r]repos [a]activity [d]dashboard [w]whoami [c]clear [q]quit');
+    else if (cmd) await typeLine('  unknown: ' + cmd + '  (h for help)', red);
     term.write('  $ ');
     commandMode = false;
   } else if (code === 127) {
-    if (inputBuf.length > 0) {
-      inputBuf = inputBuf.slice(0, -1);
-      term.write('\x1b[1D \x1b[1D');
-    }
-  } else if (code >= 32 && code < 127) {
-    inputBuf += data;
-    term.write(data);
-  }
+    if (inputBuf.length > 0) { inputBuf = inputBuf.slice(0, -1); term.write('\x1b[1D \x1b[1D'); }
+  } else if (code >= 32 && code < 127) { inputBuf += data; term.write(data); }
 });
 
-// --- periodic data refresh ---
-setInterval(async () => {
-  await fetchData();
-}, 30000);
+setInterval(async () => { await fetchData(); }, 30000);
 
-// go
 term.write('  $ ');
 boot();
 </script>
