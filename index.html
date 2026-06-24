@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Synced Repos — Live Feed</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
+h1 { color: #58a6ff; margin-bottom: 8px; }
+.meta { color: #8b949e; font-size: 14px; margin-bottom: 20px; }
+#status { color: #3fb950; font-size: 13px; margin-bottom: 16px; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; padding: 8px 12px; background: #161b22; color: #8b949e; font-size: 12px; text-transform: uppercase; position: sticky; top: 0; }
+td { padding: 8px 12px; border-bottom: 1px solid #21262d; }
+tr:hover td { background: #161b22; }
+a { color: #58a6ff; text-decoration: none; }
+a:hover { text-decoration: underline; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; }
+.badge-identical { background: #1a3a2a; color: #3fb950; }
+.new-row { animation: fadeIn 0.4s ease-in; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+<h1>🌿 Synced Repos</h1>
+<div class="meta">bonsai/sync-repos — ローカル削除済みリポジトリの GitHub フィード</div>
+<div id="status">● 接続中...</div>
+<table>
+<thead><tr><th>#</th><th>フォルダ</th><th>GitHub</th><th>状態</th><th>近似度</th><th>削除日時</th></tr></thead>
+<tbody id="feed"></tbody>
+</table>
+<script>
+const FEED_URL = './data.jsonl';
+const feed = document.getElementById('feed');
+const status = document.getElementById('status');
+let lastCount = 0;
+
+async function fetchFeed() {
+  try {
+    const res = await fetch(FEED_URL + '?t=' + Date.now());
+    const text = await res.text();
+    const lines = text.trim().split('\n').filter(Boolean);
+    status.textContent = `● 更新済み — ${lines.length}件 (${new Date().toLocaleTimeString()})`;
+    status.style.color = '#3fb950';
+
+    if (lines.length !== lastCount) {
+      feed.innerHTML = '';
+      lines.forEach((line, i) => {
+        const r = JSON.parse(line);
+        const tr = document.createElement('tr');
+        tr.className = 'new-row';
+        const score = r.similarity_score ? (r.similarity_score * 100).toFixed(0) + '%' : '—';
+        tr.innerHTML = `
+          <td>${i + 1}</td>
+          <td>${r.folder_name}</td>
+          <td><a href="${r.github_url}" target="_blank">${r.github_url.replace('https://github.com/','')}</a></td>
+          <td><span class="badge badge-identical">${r.diff_status}</span></td>
+          <td>${score}</td>
+          <td>${r.deleted_at || ''}</td>
+        `;
+        feed.appendChild(tr);
+      });
+      lastCount = lines.length;
+    }
+  } catch (e) {
+    status.textContent = `● エラー: ${e.message}`;
+    status.style.color = '#f85149';
+  }
+}
+
+fetchFeed();
+setInterval(fetchFeed, 5000);
+</script>
+</body>
+</html>
