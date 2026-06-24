@@ -3,74 +3,234 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Synced Repos — Live Feed</title>
+<title>sync-repos — terminal</title>
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
-h1 { color: #58a6ff; margin-bottom: 8px; }
-.meta { color: #8b949e; font-size: 14px; margin-bottom: 20px; }
-#status { color: #3fb950; font-size: 13px; margin-bottom: 16px; }
-table { width: 100%; border-collapse: collapse; }
-th { text-align: left; padding: 8px 12px; background: #161b22; color: #8b949e; font-size: 12px; text-transform: uppercase; position: sticky; top: 0; }
-td { padding: 8px 12px; border-bottom: 1px solid #21262d; }
-tr:hover td { background: #161b22; }
-a { color: #58a6ff; text-decoration: none; }
-a:hover { text-decoration: underline; }
-.badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; }
-.badge-identical { background: #1a3a2a; color: #3fb950; }
-.new-row { animation: fadeIn 0.4s ease-in; }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+body { background: #0d1117; overflow: hidden; }
+#terminal { width: 100vw; height: 100vh; padding: 4px; }
 </style>
 </head>
 <body>
-<h1>🌿 Synced Repos</h1>
-<div class="meta">bonsai/sync-repos — ローカル削除済みリポジトリの GitHub フィード</div>
-<div id="status">● 接続中...</div>
-<table>
-<thead><tr><th>#</th><th>フォルダ</th><th>GitHub</th><th>状態</th><th>近似度</th><th>削除日時</th></tr></thead>
-<tbody id="feed"></tbody>
-</table>
+<div id="terminal"></div>
 <script>
-const FEED_URL = './data.jsonl';
-const feed = document.getElementById('feed');
-const status = document.getElementById('status');
-let lastCount = 0;
+const term = new Terminal({
+  fontSize: 14,
+  fontFamily: 'Consolas, "Courier New", monospace',
+  theme: { background: '#0d1117', foreground: '#c9d1d9', cursor: '#58a6ff' },
+  cursorBlink: true,
+  rows: 40
+});
+term.open(document.getElementById('terminal'));
 
-async function fetchFeed() {
-  try {
-    const res = await fetch(FEED_URL + '?t=' + Date.now());
-    const text = await res.text();
-    const lines = text.trim().split('\n').filter(Boolean);
-    status.textContent = `● 更新済み — ${lines.length}件 (${new Date().toLocaleTimeString()})`;
-    status.style.color = '#3fb950';
+const term_fit = () => {
+  const dim = term._core._renderService.dimensions;
+  term.resize(dim.css.container.width / dim.css.cell.width | 0, dim.css.container.height / dim.css.cell.height | 0);
+};
+window.addEventListener('resize', term_fit);
+setTimeout(term_fit, 50);
 
-    if (lines.length !== lastCount) {
-      feed.innerHTML = '';
-      lines.forEach((line, i) => {
-        const r = JSON.parse(line);
-        const tr = document.createElement('tr');
-        tr.className = 'new-row';
-        const score = r.similarity_score ? (r.similarity_score * 100).toFixed(0) + '%' : '—';
-        tr.innerHTML = `
-          <td>${i + 1}</td>
-          <td>${r.folder_name}</td>
-          <td><a href="${r.github_url}" target="_blank">${r.github_url.replace('https://github.com/','')}</a></td>
-          <td><span class="badge badge-identical">${r.diff_status}</span></td>
-          <td>${score}</td>
-          <td>${r.deleted_at || ''}</td>
-        `;
-        feed.appendChild(tr);
-      });
-      lastCount = lines.length;
-    }
-  } catch (e) {
-    status.textContent = `● エラー: ${e.message}`;
-    status.style.color = '#f85149';
+// --- helpers ---
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+async function typeLine(text, color = '\x1b[39m') {
+  const prefix = color;
+  const suffix = '\x1b[0m';
+  for (let i = 0; i < text.length; i++) {
+    term.write(text[i]);
+    await sleep(8 + Math.random() * 12);
   }
+  term.write('\r\n');
+}
+async function writeLine(text, color = '\x1b[39m') {
+  term.writeln(prefix + text + suffix);
+}
+function prefix(s, c) { return c + s + '\x1b[0m'; }
+function green(s) { return '\x1b[32m' + s + '\x1b[0m'; }
+function blue(s) { return '\x1b[34m' + s + '\x1b[0m'; }
+function yellow(s) { return '\x1b[33m' + s + '\x1b[0m'; }
+function dim(s) { return '\x1b[2m' + s + '\x1b[0m'; }
+function cyan(s) { return '\x1b[36m' + s + '\x1b[0m'; }
+function red(s) { return '\x1b[31m' + s + '\x1b[0m'; }
+
+// --- data ---
+let repoLines = [];
+let activityLines = [];
+let currentFilter = 'all'; // all | repos | activity
+
+async function boot() {
+  term.clear();
+  await typeLine('  🌿  sync-repos  ──  live terminal', '\x1b[35m');
+  await typeLine('  ─────────────────────────────────────', '\x1b[2m');
+  await sleep(300);
+  await typeLine('  $ ' + green('sync-repos') + ' --status');
+  await sleep(200);
+  await typeLine('  scanning repos.sqlite...');
+  await sleep(400);
+
+  // fetch data.jsonl
+  try {
+    const res = await fetch('./data.jsonl?t=' + Date.now());
+    const text = await res.text();
+    repoLines = text.trim().split('\n').filter(Boolean);
+    await typeLine('  ✓ loaded ' + cyan(String(repoLines.length)) + ' synced repos');
+  } catch (e) {
+    await typeLine('  ✗ failed to load data.jsonl: ' + e.message, '\x1b[31m');
+    repoLines = [];
+  }
+  await sleep(200);
+
+  // fetch log.jsonl (activity)
+  try {
+    const res2 = await fetch('./log.jsonl?t=' + Date.now());
+    const text2 = await res2.text();
+    activityLines = text2.trim().split('\n').filter(Boolean);
+    await typeLine('  ✓ loaded ' + cyan(String(activityLines.length)) + ' activity events');
+  } catch (e) {
+    activityLines = [];
+    await typeLine('  ⚠ no log.jsonl (activity log not yet available)');
+  }
+  await sleep(300);
+
+  term.writeln('');
+  await typeLine('  commands: ' + green('[r]') + ' repos  ' + green('[a]') + ' activity  ' + green('[f]') + ' filter  ' + green('[q]') + ' quit');
+  term.writeln('');
+
+  // auto-run: show repos with type animation
+  await runReposView();
 }
 
-fetchFeed();
-setInterval(fetchFeed, 5000);
+async function runReposView() {
+  term.writeln('');
+  await typeLine('  ── deleted repos (' + repoLines.length + ') ──', '\x1b[36m');
+  term.writeln('');
+
+  for (let i = 0; i < repoLines.length; i++) {
+    const r = JSON.parse(repoLines[i]);
+    const num = String(i + 1).padStart(2, ' ');
+    const score = (r.similarity_score * 100).toFixed(0) + '%';
+    const line = `  ${dim(num)}  ${green(r.folder_name.padEnd(24))} ${blue(r.github_url.replace('https://github.com/', ''))}  ${yellow(score)}`;
+    await typeLine(line);
+    if (i === 20) {
+      term.writeln('');
+      await typeLine(dim('  ... (' + (repoLines.length - i - 1) + ' more, press [f] to filter)'));
+      break;
+    }
+  }
+  term.writeln('');
+  await typeLine('  total: ' + cyan(String(repoLines.length)) + ' repos deleted from local');
+  term.writeln('');
+}
+
+async function runActivityView() {
+  term.writeln('');
+  await typeLine('  ── activity log (' + activityLines.length + ') ──', '\x1b[36m');
+  term.writeln('');
+
+  if (activityLines.length === 0) {
+    await typeLine(dim('  no activity yet — workflow will populate log.jsonl'));
+    return;
+  }
+
+  const recent = activityLines.slice(-20);
+  for (const line of recent) {
+    const r = JSON.parse(line);
+    const ts = (r.timestamp || '').slice(11, 19);
+    const msg = r.message || r.event || JSON.stringify(r).slice(0, 80);
+    await typeLine(`  ${dim(ts)}  ${cyan(r.agent || 'system')}  ${msg}`);
+  }
+  term.writeln('');
+}
+
+async function runFilterView() {
+  term.writeln('');
+  await typeLine('  ── filter: ' + green(currentFilter) + ' ──', '\x1b[36m');
+  term.writeln('');
+
+  const filter = currentFilter;
+  if (filter === 'repos' || filter === 'all') {
+    const count = repoLines.length;
+    await typeLine('  repos: ' + green(String(count)) + ' entries');
+    if (filter === 'repos') {
+      for (const line of repoLines.slice(0, 10)) {
+        const r = JSON.parse(line);
+        await typeLine('    ' + green(r.folder_name) + dim(' → ' + r.github_url));
+      }
+    }
+  }
+  if (filter === 'activity' || filter === 'all') {
+    const count = activityLines.length;
+    await typeLine('  activity: ' + cyan(String(count)) + ' events');
+    if (filter === 'activity') {
+      for (const line of activityLines.slice(-10)) {
+        const r = JSON.parse(line);
+        await typeLine('    ' + dim((r.timestamp || '').slice(0, 19)) + ' ' + (r.event || ''));
+      }
+    }
+  }
+  if (filter === 'stats') {
+    const identical = repoLines.filter(l => JSON.parse(l).diff_status === 'identical').length;
+    const ahead = repoLines.filter(l => JSON.parse(l).diff_status === 'local_ahead').length;
+    const diverged = repoLines.filter(l => JSON.parse(l).diff_status === 'diverged').length;
+    await typeLine('  synced repos: ' + green(String(identical)));
+    await typeLine('  local ahead: ' + yellow(String(ahead)));
+    await typeLine('  diverged: ' + red(String(diverged)));
+    await typeLine('  activity events: ' + cyan(String(activityLines.length)));
+  }
+  term.writeln('');
+}
+
+// --- interactive ---
+let inputBuf = '';
+let inCommand = false;
+
+term.onData(async (data) => {
+  if (inCommand) return;
+
+  const code = data.charCodeAt(0);
+
+  if (code === 13) { // Enter
+    inCommand = true;
+    term.writeln('');
+    const cmd = inputBuf.trim();
+    inputBuf = '';
+
+    if (cmd === 'r' || cmd === 'repos') {
+      await runReposView();
+    } else if (cmd === 'a' || cmd === 'activity') {
+      await runActivityView();
+    } else if (cmd === 'f' || cmd === 'filter') {
+      const filters = ['all', 'repos', 'activity', 'stats'];
+      const idx = filters.indexOf(currentFilter);
+      currentFilter = filters[(idx + 1) % filters.length];
+      await runFilterView();
+    } else if (cmd === 'q' || cmd === 'quit') {
+      await typeLine('  👋 bye', '\x1b[35m');
+      term.dispose();
+      return;
+    } else if (cmd === 'clear' || cmd === 'c') {
+      term.clear();
+    } else if (cmd === 'help' || cmd === 'h') {
+      await typeLine('  commands: [r]repos  [a]activity  [f]filter  [c]clear  [q]quit');
+    } else if (cmd) {
+      await typeLine('  unknown command: ' + cmd + '  (press h for help)', '\x1b[31m');
+    }
+
+    term.write('  $ ');
+    inCommand = false;
+  } else if (code === 127) { // Backspace
+    if (inputBuf.length > 0) {
+      inputBuf = inputBuf.slice(0, -1);
+      term.write('\x1b[1D \x1b[1D');
+    }
+  } else if (code >= 32) {
+    inputBuf += data;
+    term.write(data);
+  }
+});
+
+// boot
+term.write('  $ ');
+boot();
 </script>
 </body>
 </html>
