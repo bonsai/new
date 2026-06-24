@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>sync-repos — terminal</title>
+<title>sync-repos — live terminal</title>
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -15,220 +15,297 @@ body { background: #0d1117; overflow: hidden; }
 <div id="terminal"></div>
 <script>
 const term = new Terminal({
-  fontSize: 14,
+  fontSize: 13,
   fontFamily: 'Consolas, "Courier New", monospace',
   theme: { background: '#0d1117', foreground: '#c9d1d9', cursor: '#58a6ff' },
   cursorBlink: true,
-  rows: 40
+  rows: 50,
+  scrollback: 10000
 });
 term.open(document.getElementById('terminal'));
 
-const term_fit = () => {
-  const dim = term._core._renderService.dimensions;
-  term.resize(dim.css.container.width / dim.css.cell.width | 0, dim.css.container.height / dim.css.cell.height | 0);
+const fit = () => {
+  try {
+    const d = term._core._renderService.dimensions;
+    term.resize(
+      Math.floor(d.css.container.width / d.css.cell.width),
+      Math.floor(d.css.container.height / d.css.cell.height)
+    );
+  } catch(e) {}
 };
-window.addEventListener('resize', term_fit);
-setTimeout(term_fit, 50);
+window.addEventListener('resize', fit);
+setTimeout(fit, 50);
 
 // --- helpers ---
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-async function typeLine(text, color = '\x1b[39m') {
-  const prefix = color;
-  const suffix = '\x1b[0m';
-  for (let i = 0; i < text.length; i++) {
-    term.write(text[i]);
-    await sleep(8 + Math.random() * 12);
-  }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function typeChar(ch) { term.write(ch); await sleep(6 + Math.random() * 10); }
+async function typeLine(text) {
+  for (const ch of text) await typeChar(ch);
   term.write('\r\n');
 }
-async function writeLine(text, color = '\x1b[39m') {
-  term.writeln(prefix + text + suffix);
-}
-function prefix(s, c) { return c + s + '\x1b[0m'; }
-function green(s) { return '\x1b[32m' + s + '\x1b[0m'; }
-function blue(s) { return '\x1b[34m' + s + '\x1b[0m'; }
+function green(s)  { return '\x1b[32m' + s + '\x1b[0m'; }
+function blue(s)   { return '\x1b[34m' + s + '\x1b[0m'; }
 function yellow(s) { return '\x1b[33m' + s + '\x1b[0m'; }
-function dim(s) { return '\x1b[2m' + s + '\x1b[0m'; }
-function cyan(s) { return '\x1b[36m' + s + '\x1b[0m'; }
-function red(s) { return '\x1b[31m' + s + '\x1b[0m'; }
+function dim(s)    { return '\x1b[2m' + s + '\x1b[0m'; }
+function cyan(s)   { return '\x1b[36m' + s + '\x1b[0m'; }
+function red(s)    { return '\x1b[31m' + s + '\x1b[0m'; }
+function magenta(s){ return '\x1b[35m' + s + '\x1b[0m'; }
+function bold(s)   { return '\x1b[1m' + s + '\x1b[0m'; }
 
-// --- data ---
-let repoLines = [];
-let activityLines = [];
-let currentFilter = 'all'; // all | repos | activity
+function autoScroll() {
+  term.scrollToBottom();
+}
 
+// --- data state ---
+let repos = [];
+let activities = [];
+let scope = {};
+
+// --- scope from DB (simulated from data.jsonl structure) ---
+async function loadScope() {
+  // scope definition derived from data structure
+  scope = {
+    source: 'repos.sqlite → data.jsonl',
+    fields: ['folder_name', 'github_url', 'diff_status', 'similarity_score', 'deleted_at'],
+    filters: ['identical', 'local_ahead', 'remote_ahead', 'diverged', 'no_remote'],
+    agents: ['hoto', 'mito', 'opencode', 'hermes'],
+    metrics: ['total_deleted', 'synced_rate', 'activity_count']
+  };
+}
+
+// --- fetch data from GH Pages ---
+async function fetchData() {
+  try {
+    const r1 = await fetch('./data.jsonl?t=' + Date.now());
+    const t1 = await r1.text();
+    repos = t1.trim().split('\n').filter(Boolean).map(JSON.parse);
+  } catch(e) { repos = []; }
+  try {
+    const r2 = await fetch('./log.jsonl?t=' + Date.now());
+    const t2 = await r2.text();
+    activities = t2.trim().split('\n').filter(Boolean).map(JSON.parse);
+  } catch(e) { activities = []; }
+}
+
+// --- boot sequence ---
 async function boot() {
   term.clear();
-  await typeLine('  🌿  sync-repos  ──  live terminal', '\x1b[35m');
-  await typeLine('  ─────────────────────────────────────', '\x1b[2m');
+  await typeLine('  🌿  sync-repos  ──  live terminal v2', magenta);
+  await typeLine('  ──────────────────────────────────────────', dim);
   await sleep(300);
-  await typeLine('  $ ' + green('sync-repos') + ' --status');
+  await typeLine('  $ ' + green('init'));
   await sleep(200);
-  await typeLine('  scanning repos.sqlite...');
+  await typeLine('  loading scope from DB...');
+  await loadScope();
+  await sleep(300);
+  await typeLine('  ✓ scope: ' + cyan(scope.fields.length) + ' fields, ' + cyan(scope.filters.length) + ' filters');
+  await sleep(200);
+  await typeLine('  fetching data from GH Pages...');
+  await fetchData();
   await sleep(400);
-
-  // fetch data.jsonl
-  try {
-    const res = await fetch('./data.jsonl?t=' + Date.now());
-    const text = await res.text();
-    repoLines = text.trim().split('\n').filter(Boolean);
-    await typeLine('  ✓ loaded ' + cyan(String(repoLines.length)) + ' synced repos');
-  } catch (e) {
-    await typeLine('  ✗ failed to load data.jsonl: ' + e.message, '\x1b[31m');
-    repoLines = [];
-  }
+  await typeLine('  ✓ repos: ' + green(String(repos.length)) + ' entries');
+  await typeLine('  ✓ activity: ' + cyan(String(activities.length)) + ' events');
+  await sleep(300);
+  term.writeln('');
+  await typeLine('  commands: ' + green('[s]') + ' scope  ' + green('[r]') + ' repos  ' + green('[a]') + ' activity  ' + green('[d]') + ' dashboard  ' + green('[q]') + ' quit');
+  term.writeln('');
   await sleep(200);
 
-  // fetch log.jsonl (activity)
-  try {
-    const res2 = await fetch('./log.jsonl?t=' + Date.now());
-    const text2 = await res2.text();
-    activityLines = text2.trim().split('\n').filter(Boolean);
-    await typeLine('  ✓ loaded ' + cyan(String(activityLines.length)) + ' activity events');
-  } catch (e) {
-    activityLines = [];
-    await typeLine('  ⚠ no log.jsonl (activity log not yet available)');
-  }
-  await sleep(300);
-
-  term.writeln('');
-  await typeLine('  commands: ' + green('[r]') + ' repos  ' + green('[a]') + ' activity  ' + green('[f]') + ' filter  ' + green('[q]') + ' quit');
-  term.writeln('');
-
-  // auto-run: show repos with type animation
-  await runReposView();
+  // start random background tasks
+  startRandomTasks();
 }
 
-async function runReposView() {
-  term.writeln('');
-  await typeLine('  ── deleted repos (' + repoLines.length + ') ──', '\x1b[36m');
-  term.writeln('');
+// --- random task runner ---
+const taskNames = [
+  'scan_repos', 'calc_similarity', 'judge_deletable', 'verify_push',
+  'fetch_gh_events', 'report_diff', 'sync_db', 'check_rate_limit',
+  'inventory_check', 'privacy_scan', 'naming_verify', 'backup_hormon'
+];
 
-  for (let i = 0; i < repoLines.length; i++) {
-    const r = JSON.parse(repoLines[i]);
-    const num = String(i + 1).padStart(2, ' ');
-    const score = (r.similarity_score * 100).toFixed(0) + '%';
-    const line = `  ${dim(num)}  ${green(r.folder_name.padEnd(24))} ${blue(r.github_url.replace('https://github.com/', ''))}  ${yellow(score)}`;
-    await typeLine(line);
-    if (i === 20) {
-      term.writeln('');
-      await typeLine(dim('  ... (' + (repoLines.length - i - 1) + ' more, press [f] to filter)'));
-      break;
-    }
+const agents = ['hoto', 'mito', 'opencode', 'hermes'];
+
+async function randomTask() {
+  const task = taskNames[Math.floor(Math.random() * taskNames.length)];
+  const agent = agents[Math.floor(Math.random() * agents.length)];
+  const ts = new Date().toISOString().slice(11, 19);
+
+  term.write('  ' + dim(ts) + ' ');
+  term.write(cyan('[' + agent + ']'));
+  term.write(' $ ' + task);
+  term.writeln('');
+  autoScroll();
+
+  // simulate output lines
+  const lines = 2 + Math.floor(Math.random() * 6);
+  for (let i = 0; i < lines; i++) {
+    await sleep(80 + Math.random() * 200);
+    const outputs = [
+      () => '  ├─ scanning... ' + green('✓'),
+      () => '  ├─ diff: ' + cyan(String(Math.floor(Math.random() * 50))) + ' files changed',
+      () => '  ├─ similarity: ' + yellow((Math.random() * 100).toFixed(1) + '%'),
+      () => '  ├─ status: ' + green('identical'),
+      () => '  ├─ repo: ' + blue('bonsai/' + repos[Math.floor(Math.random() * repos.length)]?.github_name || 'unknown'),
+      () => '  ├─ agent: ' + magenta(agent) + ' → ' + dim('next: ' + agents[Math.floor(Math.random() * agents.length)]),
+      () => '  ├─ db: ' + (Math.random() > 0.5 ? green('updated') : dim('no changes')),
+      () => '  ├─ confidence: ' + (Math.random() > 0.7 ? green((80 + Math.random() * 20).toFixed(0) + '%') : dim('—')),
+      () => '  └─ ' + (Math.random() > 0.3 ? green('done') : yellow('partial')),
+    ];
+    const out = outputs[Math.floor(Math.random() * outputs.length)]();
+    await typeLine(out);
+    autoScroll();
   }
-  term.writeln('');
-  await typeLine('  total: ' + cyan(String(repoLines.length)) + ' repos deleted from local');
-  term.writeln('');
+  autoScroll();
 }
 
-async function runActivityView() {
-  term.writeln('');
-  await typeLine('  ── activity log (' + activityLines.length + ') ──', '\x1b[36m');
-  term.writeln('');
-
-  if (activityLines.length === 0) {
-    await typeLine(dim('  no activity yet — workflow will populate log.jsonl'));
-    return;
-  }
-
-  const recent = activityLines.slice(-20);
-  for (const line of recent) {
-    const r = JSON.parse(line);
-    const ts = (r.timestamp || '').slice(11, 19);
-    const msg = r.message || r.event || JSON.stringify(r).slice(0, 80);
-    await typeLine(`  ${dim(ts)}  ${cyan(r.agent || 'system')}  ${msg}`);
-  }
-  term.writeln('');
+function startRandomTasks() {
+  const schedule = () => {
+    const delay = 1500 + Math.random() * 4000;
+    setTimeout(async () => {
+      await randomTask();
+      schedule();
+    }, delay);
+  };
+  schedule();
 }
 
-async function runFilterView() {
+// --- views ---
+async function showScope() {
   term.writeln('');
-  await typeLine('  ── filter: ' + green(currentFilter) + ' ──', '\x1b[36m');
+  await typeLine('  ── scope (from DB) ──', magenta);
+  term.writeln('');
+  await typeLine('  source:    ' + yellow(scope.source));
+  await typeLine('  fields:    ' + scope.fields.map(f => cyan(f)).join(', '));
+  await typeLine('  filters:   ' + scope.filters.map(f => green(f)).join(', '));
+  await typeLine('  agents:    ' + scope.agents.map(a => cyan(a)).join(', '));
+  await typeLine('  metrics:   ' + scope.metrics.map(m => yellow(m)).join(', '));
+  term.writeln('');
+  await typeLine('  data source: GH Pages → data.jsonl (repos), log.jsonl (activity)');
+  term.writeln('');
+  autoScroll();
+}
+
+async function showRepos() {
+  term.writeln('');
+  await typeLine('  ── repos (' + repos.length + ') ──', magenta);
+  term.writeln('');
+  const show = repos.slice(0, 15);
+  for (const r of show) {
+    const score = r.similarity_score ? (r.similarity_score * 100).toFixed(0) + '%' : '—';
+    await typeLine(
+      '  ' + green(r.folder_name.padEnd(24)) +
+      blue(r.github_url.replace('https://github.com/', '').padEnd(24)) +
+      yellow(score)
+    );
+  }
+  if (repos.length > 15) {
+    await typeLine(dim('  ... ' + (repos.length - 15) + ' more'));
+  }
+  term.writeln('');
+  await typeLine('  total: ' + green(String(repos.length)) + ' deleted from local');
+  term.writeln('');
+  autoScroll();
+}
+
+async function showActivity() {
+  term.writeln('');
+  await typeLine('  ── activity (' + activities.length + ') ──', magenta);
+  term.writeln('');
+  const recent = activities.slice(-10);
+  for (const a of recent) {
+    const ts = (a.timestamp || '').slice(11, 19) || '--:--:--';
+    await typeLine('  ' + dim(ts) + '  ' + cyan((a.agent || '?').padEnd(8)) + ' ' + green(a.event || a.message || 'unknown'));
+  }
+  if (activities.length === 0) {
+    await typeLine(dim('  no activity — workflow will populate log.jsonl'));
+  }
+  term.writeln('');
+  autoScroll();
+}
+
+async function showDashboard() {
+  term.writeln('');
+  await typeLine('  ── dashboard ──', magenta);
   term.writeln('');
 
-  const filter = currentFilter;
-  if (filter === 'repos' || filter === 'all') {
-    const count = repoLines.length;
-    await typeLine('  repos: ' + green(String(count)) + ' entries');
-    if (filter === 'repos') {
-      for (const line of repoLines.slice(0, 10)) {
-        const r = JSON.parse(line);
-        await typeLine('    ' + green(r.folder_name) + dim(' → ' + r.github_url));
-      }
-    }
-  }
-  if (filter === 'activity' || filter === 'all') {
-    const count = activityLines.length;
-    await typeLine('  activity: ' + cyan(String(count)) + ' events');
-    if (filter === 'activity') {
-      for (const line of activityLines.slice(-10)) {
-        const r = JSON.parse(line);
-        await typeLine('    ' + dim((r.timestamp || '').slice(0, 19)) + ' ' + (r.event || ''));
-      }
-    }
-  }
-  if (filter === 'stats') {
-    const identical = repoLines.filter(l => JSON.parse(l).diff_status === 'identical').length;
-    const ahead = repoLines.filter(l => JSON.parse(l).diff_status === 'local_ahead').length;
-    const diverged = repoLines.filter(l => JSON.parse(l).diff_status === 'diverged').length;
-    await typeLine('  synced repos: ' + green(String(identical)));
-    await typeLine('  local ahead: ' + yellow(String(ahead)));
-    await typeLine('  diverged: ' + red(String(diverged)));
-    await typeLine('  activity events: ' + cyan(String(activityLines.length)));
-  }
+  const identical = repos.filter(r => r.diff_status === 'identical').length;
+  const ahead = repos.filter(r => r.diff_status === 'local_ahead').length;
+  const diverged = repos.filter(r => r.diff_status === 'diverged').length;
+  const rate = repos.length > 0 ? (identical / repos.length * 100).toFixed(0) : 0;
+
+  await typeLine('  synced repos:    ' + green(String(identical)) + ' / ' + repos.length + ' (' + yellow(rate + '%') + ')');
+  await typeLine('  local ahead:     ' + yellow(String(ahead)));
+  await typeLine('  diverged:        ' + red(String(diverged)));
+  await typeLine('  activity events: ' + cyan(String(activities.length)));
   term.writeln('');
+
+  // bar chart
+  const bar = (label, val, max, color) => {
+    const w = 30;
+    const filled = max > 0 ? Math.round(val / max * w) : 0;
+    return '  ' + label.padEnd(14) + color('█'.repeat(filled)) + dim('░'.repeat(w - filled)) + ' ' + val;
+  };
+  const maxVal = Math.max(identical, ahead, diverged, 1);
+  await typeLine(bar('identical', identical, maxVal, green));
+  await typeLine(bar('local_ahead', ahead, maxVal, yellow));
+  await typeLine(bar('diverged', diverged, maxVal, red));
+  term.writeln('');
+
+  // latest
+  await typeLine('  latest deletion: ' + (repos[repos.length - 1]?.folder_name || '—'));
+  await typeLine('  last activity:  ' + (activities[activities.length - 1]?.timestamp || '—'));
+  term.writeln('');
+  autoScroll();
 }
 
 // --- interactive ---
 let inputBuf = '';
-let inCommand = false;
+let commandMode = false;
 
 term.onData(async (data) => {
-  if (inCommand) return;
-
+  if (commandMode) return;
   const code = data.charCodeAt(0);
 
-  if (code === 13) { // Enter
-    inCommand = true;
+  if (code === 13) {
+    commandMode = true;
     term.writeln('');
     const cmd = inputBuf.trim();
     inputBuf = '';
 
-    if (cmd === 'r' || cmd === 'repos') {
-      await runReposView();
-    } else if (cmd === 'a' || cmd === 'activity') {
-      await runActivityView();
-    } else if (cmd === 'f' || cmd === 'filter') {
-      const filters = ['all', 'repos', 'activity', 'stats'];
-      const idx = filters.indexOf(currentFilter);
-      currentFilter = filters[(idx + 1) % filters.length];
-      await runFilterView();
-    } else if (cmd === 'q' || cmd === 'quit') {
-      await typeLine('  👋 bye', '\x1b[35m');
+    if (cmd === 's' || cmd === 'scope') await showScope();
+    else if (cmd === 'r' || cmd === 'repos') await showRepos();
+    else if (cmd === 'a' || cmd === 'activity') await showActivity();
+    else if (cmd === 'd' || cmd === 'dashboard') await showDashboard();
+    else if (cmd === 'q' || cmd === 'quit') {
+      await typeLine('  👋 bye', magenta);
       term.dispose();
       return;
     } else if (cmd === 'clear' || cmd === 'c') {
       term.clear();
     } else if (cmd === 'help' || cmd === 'h') {
-      await typeLine('  commands: [r]repos  [a]activity  [f]filter  [c]clear  [q]quit');
+      await typeLine('  [s]scope  [r]repos  [a]activity  [d]dashboard  [c]clear  [q]quit');
     } else if (cmd) {
-      await typeLine('  unknown command: ' + cmd + '  (press h for help)', '\x1b[31m');
+      await typeLine('  unknown: ' + cmd + '  (h for help)', red);
     }
 
     term.write('  $ ');
-    inCommand = false;
-  } else if (code === 127) { // Backspace
+    commandMode = false;
+  } else if (code === 127) {
     if (inputBuf.length > 0) {
       inputBuf = inputBuf.slice(0, -1);
       term.write('\x1b[1D \x1b[1D');
     }
-  } else if (code >= 32) {
+  } else if (code >= 32 && code < 127) {
     inputBuf += data;
     term.write(data);
   }
 });
 
-// boot
+// --- periodic data refresh ---
+setInterval(async () => {
+  await fetchData();
+}, 30000);
+
+// go
 term.write('  $ ');
 boot();
 </script>
