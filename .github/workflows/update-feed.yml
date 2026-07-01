@@ -35,6 +35,8 @@ jobs:
                   count += 1
               print(f'Generated {count} activity events')
           PYEOF
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Commit and push
         run: |
