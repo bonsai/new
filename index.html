@@ -1,469 +1,54 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>sync-repos — WSL Ubuntu</title>
-<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GitHub Console — bonsai/new</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #2d2d2d; overflow: hidden; font-family: 'Segoe UI', -apple-system, sans-serif; user-select: none; }
-
-/* --- Title Bar --- */
-#titlebar {
-  height: 32px; background: #3c3c3c;
-  display: flex; align-items: center; padding: 0 12px;
-  -webkit-app-region: drag; cursor: default;
-}
-#titlebar .icon { color: #cccccc; font-size: 14px; margin-right: 8px; }
-#titlebar .title { color: #cccccc; font-size: 12px; flex: 1; }
-#titlebar .controls { display: flex; gap: 0; -webkit-app-region: no-drag; }
-#titlebar .controls div {
-  width: 46px; height: 32px; display: flex; align-items: center; justify-content: center;
-  color: #cccccc; font-size: 10px; cursor: pointer;
-}
-#titlebar .controls div:hover { background: #505050; }
-#titlebar .controls .close:hover { background: #e81123; }
-
-/* --- Tab Bar --- */
-#tabbar {
-  display: flex; background: #2d2d2d; padding: 0 8px;
-  overflow-x: auto; scrollbar-width: none;
-}
-#tabbar::-webkit-scrollbar { display: none; }
-.tab {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 16px; color: #cccccc; font-size: 12px;
-  background: #2d2d2d; border: none; cursor: pointer;
-  border-right: 1px solid #3c3c3c;
-  max-width: 200px; min-width: 100px;
-  transition: background 0.15s;
-}
-.tab:hover { background: #3c3c3c; }
-.tab.active { background: #0d1117; color: #ffffff; }
-.tab .tab-icon { font-size: 14px; }
-.tab .tab-close {
-  width: 18px; height: 18px; border-radius: 4px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 11px; opacity: 0; transition: opacity 0.15s;
-}
-.tab:hover .tab-close { opacity: 0.7; }
-.tab .tab-close:hover { background: #505050; opacity: 1; }
-.tab-add {
-  width: 28px; height: 28px; margin: 4px;
-  display: flex; align-items: center; justify-content: center;
-  color: #888; font-size: 16px; cursor: pointer; border-radius: 4px;
-}
-.tab-add:hover { background: #3c3c3c; color: #ccc; }
-
-/* --- Toolbar --- */
-#toolbar {
-  height: 36px; background: #252526; border-bottom: 1px solid #3c3c3c;
-  display: flex; align-items: center; padding: 0 12px; gap: 8px;
-}
-#toolbar .btn {
-  padding: 4px 10px; font-size: 11px; color: #cccccc;
-  background: #3c3c3c; border: 1px solid #555; border-radius: 3px;
-  cursor: pointer;
-}
-#toolbar .btn:hover { background: #505050; }
-#toolbar .btn.active { background: #094771; border-color: #007acc; }
-#toolbar .sep { width: 1px; height: 20px; background: #555; margin: 0 4px; }
-#toolbar .spacer { flex: 1; }
-#toolbar .cwd { color: #888; font-size: 11px; font-family: Consolas, monospace; }
-
-/* --- Terminal --- */
-#terminal-container { display: flex; height: calc(100vh - 32px - 36px - 36px); }
-#terminal { flex: 1; padding: 4px 8px; }
-
-/* --- Status Bar --- */
-#statusbar {
-  height: 24px; background: #007acc;
-  display: flex; align-items: center; padding: 0 12px;
-  font-size: 11px; color: #ffffff; gap: 16px;
-}
-#statusbar .item { display: flex; align-items: center; gap: 4px; }
-#statusbar .dot { width: 8px; height: 8px; border-radius: 50%; background: #4ec9b0; }
-#statusbar .remote { background: #3c3c3c; padding: 1px 8px; border-radius: 3px; }
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#0d1117;color:#c9d1d9;font-family:Consolas,"Cascadia Code","SFMono-Regular",monospace}button,input{font:inherit}button{cursor:pointer}.app{height:100%;display:grid;grid-template-rows:32px 36px 1fr 25px}.title{background:#161b22;display:flex;align-items:center;padding:0 12px;font:12px system-ui;color:#c9d1d9}.title b{color:#fff}.title .grow{flex:1}.toolbar{display:flex;align-items:center;gap:6px;padding:0 10px;background:#21262d;border-bottom:1px solid #30363d}.btn{border:1px solid #484f58;background:#30363d;color:#c9d1d9;border-radius:4px;padding:4px 9px;font-size:11px}.btn:hover{background:#3b434c}.btn.primary{background:#238636;border-color:#2ea043;color:#fff}.btn.danger{background:#21262d}.repo{margin-left:auto;color:#8b949e;font-size:11px}.main{display:grid;grid-template-columns:minmax(0,1fr) 320px;min-height:0}.terminal{min-width:0;display:flex;flex-direction:column;background:#0d1117}.output{flex:1;overflow:auto;padding:14px 16px 8px;white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.55}.line{margin:0}.prompt{color:#3fb950}.muted{color:#8b949e}.ok{color:#3fb950}.warn{color:#d29922}.err{color:#f85149}.cyan{color:#58a6ff}.magenta{color:#bc8cff}.cmd{color:#fff}.inputrow{display:flex;align-items:center;padding:9px 14px;border-top:1px solid #30363d;background:#161b22}.inputrow span{color:#3fb950;margin-right:8px}.input{flex:1;background:transparent;border:0;outline:0;color:#f0f6fc;font-size:14px}.side{border-left:1px solid #30363d;background:#161b22;overflow:auto;padding:12px}.side h3{font:600 12px system-ui;margin:0 0 10px;color:#f0f6fc}.card{border:1px solid #30363d;border-radius:6px;padding:10px;margin-bottom:10px;background:#0d1117}.card label{display:block;color:#8b949e;font:11px system-ui;margin-bottom:5px}.card input{width:100%;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;padding:7px;font-size:11px}.help{font:11px/1.55 system-ui;color:#8b949e}.help code{color:#58a6ff}.status{height:25px;display:flex;align-items:center;gap:14px;padding:0 10px;background:#238636;color:#fff;font:10px system-ui}.dot{width:7px;height:7px;border-radius:50%;background:#fff;display:inline-block}.badge{padding:1px 5px;border-radius:10px;background:#30363d}.result{margin:6px 0 0;padding-left:2px}.json{color:#c9d1d9}.repoRow{padding:5px 0;border-bottom:1px solid #21262d}.repoRow a{color:#58a6ff;text-decoration:none}.repoRow small{color:#8b949e;display:block}.rightTitle{color:#f0f6fc;font-weight:600}
+@media(max-width:800px){.main{grid-template-columns:1fr}.side{display:none}.toolbar .btn:nth-child(n+4){display:none}.repo{display:none}}
 </style>
 </head>
 <body>
-
-<!-- Title Bar -->
-<div id="titlebar">
-  <span class="icon">⌘</span>
-  <span class="title">sync-repos — WSL Ubuntu (bonsai/new)</span>
-  <div class="controls">
-    <div onclick="this.style.parentElement.style.display='none'">─</div>
-    <div>□</div>
-    <div class="close">✕</div>
-  </div>
+<div class="app">
+<header class="title"><span>⌘</span>&nbsp; <b>GitHub Console</b>&nbsp; — browser API terminal <span class="grow"></span><span>bonsai/new · gh-pages</span></header>
+<nav class="toolbar">
+<button class="btn primary" data-cmd="help">help</button><button class="btn" data-cmd="repos">repos</button><button class="btn" data-cmd="status">status</button><button class="btn" data-cmd="issues bonsai/new">issues</button><button class="btn" data-cmd="prs bonsai/new">prs</button><button class="btn" data-cmd="sync">sync</button><span class="repo">REST API · github.com</span>
+</nav>
+<main class="main">
+<section class="terminal"><div id="out" class="output"></div><form id="form" class="inputrow"><span>$</span><input id="input" class="input" autocomplete="off" autofocus spellcheck="false" placeholder="help と入力"></form></section>
+<aside class="side">
+<h3>AUTH / OPTIONAL</h3>
+<div class="card"><label>GitHub token（このページでは保存しません）</label><input id="token" type="password" placeholder="gho_… / github_pat_…"><button id="clearToken" class="btn" style="margin-top:7px">clear</button></div>
+<div class="card"><div class="rightTitle">CLI → API</div><p class="help"><code>gh api</code> と同じ発想で、ブラウザから GitHub REST API を呼びます。公開情報はトークンなしで取得できます。書き込み系は明示的な API コマンドだけに限定します。</p></div>
+<div class="card"><div class="rightTitle">commands</div><p class="help"><code>repos</code> — bonsai repositories<br><code>repo bonsai/idol-lab</code><br><code>issues bonsai/idol-lab</code><br><code>prs bonsai/idol-lab</code><br><code>runs bonsai/new</code><br><code>file bonsai/new README.md</code><br><code>api GET /user</code><br><code>api GET /repos/bonsai/new</code><br><code>clear</code></p></div>
+</aside>
+</main>
+<footer class="status"><span><i class="dot"></i> API ready</span><span id="authState">public mode</span><span>REST v3</span><span class="badge">CORS</span><span>UTF-8</span></footer>
 </div>
-
-<!-- Tab Bar -->
-<div id="tabbar">
-  <button class="tab active" data-tab="main">
-    <span class="tab-icon">⌘</span>
-    <span>wsl — sync-repos</span>
-    <span class="tab-close">✕</span>
-  </button>
-  <button class="tab" data-tab="second">
-    <span class="tab-icon">⌘</span>
-    <span>wsl — activity</span>
-    <span class="tab-close">✕</span>
-  </button>
-  <div class="tab-add" title="new tab">+</div>
-</div>
-
-<!-- Toolbar -->
-<div id="toolbar">
-  <button class="btn" data-cmd="scope">scope</button>
-  <button class="btn" data-cmd="repos">repos</button>
-  <button class="btn" data-cmd="activity">activity</button>
-  <button class="btn" data-cmd="dashboard">dashboard</button>
-  <button class="btn" data-cmd="whoami">whoami</button>
-  <div class="sep"></div>
-  <button class="btn" data-cmd="clear">clear</button>
-  <div class="spacer"></div>
-  <span class="cwd">~/sync-repos</span>
-</div>
-
-<!-- Terminal -->
-<div id="terminal-container">
-  <div id="terminal"></div>
-</div>
-
-<!-- Status Bar -->
-<div id="statusbar">
-  <div class="item"><span class="dot"></span> connected</div>
-  <div class="item remote">🐧 WSL Ubuntu 22.04</div>
-  <div class="item">main</div>
-  <div class="item">LF</div>
-  <div class="item">UTF-8</div>
-  <div class="item">github-actions/vm</div>
-</div>
-
 <script>
-// --- Terminal ---
-const term = new Terminal({
-  fontSize: 13,
-  fontFamily: 'Consolas, "Cascadia Code", "Courier New", monospace',
-  theme: { background: '#0d1117', foreground: '#d4d4d4', cursor: '#ffffff' },
-  cursorBlink: true,
-  cursorStyle: 'bar',
-  rows: 40,
-  scrollback: 50000
-});
-term.open(document.getElementById('terminal'));
-
-const fit = () => {
-  try {
-    const c = term._core._renderService.dimensions;
-    term.resize(
-      Math.floor(c.css.container.width / c.css.cell.width),
-      Math.floor(c.css.container.height / c.css.cell.height)
-    );
-  } catch(e) {}
-};
-window.addEventListener('resize', fit);
-setInterval(fit, 200);
-
-// --- helpers ---
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-async function typeLine(text) {
-  for (const ch of text) { term.write(ch); await sleep(3 + Math.random() * 6); }
-  term.write('\r\n');
-}
-function green(s)  { return '\x1b[32m' + s + '\x1b[0m'; }
-function blue(s)   { return '\x1b[34m' + s + '\x1b[0m'; }
-function yellow(s) { return '\x1b[33m' + s + '\x1b[0m'; }
-function dim(s)    { return '\x1b[2m' + s + '\x1b[0m'; }
-function cyan(s)   { return '\x1b[36m' + s + '\x1b[0m'; }
-function red(s)    { return '\x1b[31m' + s + '\x1b[0m'; }
-function magenta(s){ return '\x1b[35m' + s + '\x1b[0m'; }
-function bold(s)   { return '\x1b[1m' + s + '\x1b[0m'; }
-function autoScroll() { term.scrollToBottom(); }
-
-// --- data ---
-let repos = [];
-let activities = [];
-let scope = {};
-
-async function loadScope() {
-  scope = {
-    source: 'repos.sqlite → data.jsonl',
-    fields: ['folder_name', 'github_url', 'diff_status', 'similarity_score', 'deleted_at'],
-    filters: ['identical', 'local_ahead', 'remote_ahead', 'diverged', 'no_remote'],
-    agents: ['hoto', 'mito', 'opencode', 'hermes'],
-    runner: {
-      vm: 'GitHub Actions (Ubuntu Latest)',
-      os: 'Linux x64',
-      shell: 'bash',
-      workflow: 'update-feed.yml',
-      trigger: 'schedule */30 + push + manual',
-      repo: 'bonsai/new',
-      branch: 'gh-pages',
-      scope: 'data.jsonl + log.jsonl only',
-      repos_sqlite: 'not direct (via GH Pages)'
-    }
-  };
-}
-
-async function fetchData() {
-  try {
-    const r1 = await fetch('./data.jsonl?t=' + Date.now());
-    repos = (await r1.text()).trim().split('\n').filter(Boolean).map(JSON.parse);
-  } catch(e) { repos = []; }
-  try {
-    const r2 = await fetch('./log.jsonl?t=' + Date.now());
-    activities = (await r2.text()).trim().split('\n').filter(Boolean).map(JSON.parse);
-  } catch(e) { activities = []; }
-}
-
-// --- boot ---
-async function boot() {
-  term.clear();
-  await typeLine('Welcome to Ubuntu 22.04.3 LTS (GNU/Linux 5.15.90.1-microsoft-standard-WSL2 x86_64)', dim);
-  term.writeln('');
-  await typeLine(' * Documentation:  https://help.ubuntu.com', dim);
-  await typeLine(' * Management:     https://landscape.canonical.com', dim);
-  await typeLine(' * Support:        https://ubuntu.com/advantage', dim);
-  term.writeln('');
-  await typeLine('  System information as of ' + new Date().toString(), dim);
-  term.writeln('');
-  await typeLine('  System load:  0.08              Processes:               142');
-  await typeLine('  Usage of /:   12.4% of 250.98GB   Users logged in:         1');
-  await typeLine('  Memory usage: 23%               IPv4 address for eth0:   172.x.x.x');
-  await typeLine('  Swap usage:   0%');
-  term.writeln('');
-  await typeLine('  🌿  sync-repos  ──  live terminal v3', magenta);
-  await typeLine('  ──────────────────────────────────────────────────', dim);
-  await sleep(200);
-  await typeLine('  runner:  github-actions (ubuntu-latest)');
-  await typeLine('  workflow: update-feed.yml');
-  await typeLine('  repo:    bonsai/new (gh-pages)');
-  await typeLine('  scope:   data.jsonl + log.jsonl only');
-  await sleep(300);
-  await typeLine('  $ ' + green('init --scope'));
-  await loadScope();
-  await typeLine('  ✓ scope loaded: ' + cyan(scope.fields.length) + ' fields, ' + cyan(scope.agents.length) + ' agents');
-  await sleep(200);
-  await typeLine('  $ ' + green('fetch data.jsonl && log.jsonl'));
-  await fetchData();
-  await sleep(300);
-  await typeLine('  ✓ repos: ' + green(String(repos.length)) + ' entries');
-  await typeLine('  ✓ activity: ' + cyan(String(activities.length)) + ' events');
-  await sleep(200);
-  await typeLine('  $ ' + green('whoami'));
-  await typeLine('  → runner: github-actions │ vm: ubuntu-latest │ shell: bash');
-  await typeLine('  → executing: update-feed.yml → log.jsonl generator');
-  await sleep(300);
-  term.writeln('');
-  await typeLine('  commands: ' + green('[s]') + ' scope  ' + green('[r]') + ' repos  ' + green('[a]') + ' activity  ' + green('[d]') + ' dashboard  ' + green('[w]') + ' whoami  ' + green('[q]') + ' quit');
-  term.writeln('');
-  startRandomTasks();
-}
-
-// --- random tasks ---
-const taskNames = [
-  'scan_repos', 'calc_similarity', 'judge_deletable', 'verify_push',
-  'fetch_gh_events', 'report_diff', 'sync_db', 'check_rate_limit',
-  'inventory_check', 'privacy_scan', 'naming_verify', 'backup_hormon'
-];
-const agents = ['hoto', 'mito', 'opencode', 'hermes'];
-
-async function randomTask() {
-  const task = taskNames[Math.floor(Math.random() * taskNames.length)];
-  const agent = agents[Math.floor(Math.random() * agents.length)];
-  const ts = new Date().toISOString().slice(11, 19);
-  term.write('  ' + dim(ts) + ' ');
-  term.write(cyan('[' + agent + ']'));
-  term.write(' $ ' + task);
-  term.writeln('');
-  autoScroll();
-  const lines = 2 + Math.floor(Math.random() * 5);
-  for (let i = 0; i < lines; i++) {
-    await sleep(80 + Math.random() * 200);
-    const outputs = [
-      () => '  ├─ scanning... ' + green('✓'),
-      () => '  ├─ diff: ' + cyan(String(Math.floor(Math.random() * 50))) + ' files changed',
-      () => '  ├─ similarity: ' + yellow((Math.random() * 100).toFixed(1) + '%'),
-      () => '  ├─ status: ' + green('identical'),
-      () => '  ├─ repo: ' + blue('bonsai/' + (repos[Math.floor(Math.random() * repos.length)]?.github_name || 'unknown')),
-      () => '  ├─ agent: ' + magenta(agent) + ' → ' + dim('next: ' + agents[Math.floor(Math.random() * agents.length)]),
-      () => '  ├─ db: ' + (Math.random() > 0.5 ? green('updated') : dim('no changes')),
-      () => '  ├─ confidence: ' + (Math.random() > 0.7 ? green((80 + Math.random() * 20).toFixed(0) + '%') : dim('—')),
-      () => '  └─ ' + (Math.random() > 0.3 ? green('done') : yellow('partial')),
-    ];
-    await typeLine(outputs[Math.floor(Math.random() * outputs.length)]());
-    autoScroll();
-  }
-  autoScroll();
-}
-
-function startRandomTasks() {
-  const schedule = () => {
-    setTimeout(async () => { await randomTask(); schedule(); }, 1500 + Math.random() * 4000);
-  };
-  schedule();
-}
-
-// --- views ---
-async function showScope() {
-  term.writeln('');
-  await typeLine('  ── scope (from DB) ──', magenta);
-  term.writeln('');
-  await typeLine('  source:      ' + yellow(scope.source));
-  await typeLine('  fields:      ' + scope.fields.map(f => cyan(f)).join(', '));
-  await typeLine('  filters:     ' + scope.filters.map(f => green(f)).join(', '));
-  await typeLine('  agents:      ' + scope.agents.map(a => cyan(a)).join(', '));
-  term.writeln('');
-  await typeLine('  ' + bold('runner'), magenta);
-  await typeLine('  vm:          ' + yellow(scope.runner.vm));
-  await typeLine('  os:          ' + dim(scope.runner.os));
-  await typeLine('  shell:       ' + dim(scope.runner.shell));
-  await typeLine('  workflow:    ' + cyan(scope.runner.workflow));
-  await typeLine('  trigger:     ' + dim(scope.runner.trigger));
-  await typeLine('  repo:        ' + blue(scope.runner.repo));
-  await typeLine('  branch:      ' + dim(scope.runner.branch));
-  await typeLine('  scope:       ' + yellow(scope.runner.scope));
-  await typeLine('  repos.sqlite: ' + red(scope.runner.repos_sqlite));
-  term.writeln('');
-  autoScroll();
-}
-
-async function showRepos() {
-  term.writeln('');
-  await typeLine('  ── repos (' + repos.length + ') ──', magenta);
-  term.writeln('');
-  const show = repos.slice(0, 15);
-  for (const r of show) {
-    const score = r.similarity_score ? (r.similarity_score * 100).toFixed(0) + '%' : '—';
-    await typeLine('  ' + green(r.folder_name.padEnd(24)) + blue(r.github_url.replace('https://github.com/', '').padEnd(24)) + yellow(score));
-  }
-  if (repos.length > 15) await typeLine(dim('  ... ' + (repos.length - 15) + ' more'));
-  term.writeln('');
-  await typeLine('  total: ' + green(String(repos.length)) + ' deleted from local');
-  term.writeln('');
-  autoScroll();
-}
-
-async function showActivity() {
-  term.writeln('');
-  await typeLine('  ── activity (' + activities.length + ') ──', magenta);
-  term.writeln('');
-  const recent = activities.slice(-10);
-  for (const a of recent) {
-    const ts = (a.timestamp || '').slice(11, 19) || '--:--:--';
-    await typeLine('  ' + dim(ts) + '  ' + cyan((a.agent || '?').padEnd(8)) + ' ' + green(a.event || a.message || 'unknown'));
-  }
-  if (activities.length === 0) await typeLine(dim('  no activity — workflow will populate log.jsonl'));
-  term.writeln('');
-  autoScroll();
-}
-
-async function showDashboard() {
-  term.writeln('');
-  await typeLine('  ── dashboard ──', magenta);
-  term.writeln('');
-  const identical = repos.filter(r => r.diff_status === 'identical').length;
-  const ahead = repos.filter(r => r.diff_status === 'local_ahead').length;
-  const diverged = repos.filter(r => r.diff_status === 'diverged').length;
-  const rate = repos.length > 0 ? (identical / repos.length * 100).toFixed(0) : 0;
-  await typeLine('  synced repos:    ' + green(String(identical)) + ' / ' + repos.length + ' (' + yellow(rate + '%') + ')');
-  await typeLine('  local ahead:     ' + yellow(String(ahead)));
-  await typeLine('  diverged:        ' + red(String(diverged)));
-  await typeLine('  activity events: ' + cyan(String(activities.length)));
-  term.writeln('');
-  const bar = (label, val, max, color) => {
-    const w = 30;
-    const filled = max > 0 ? Math.round(val / max * w) : 0;
-    return '  ' + label.padEnd(14) + color('█'.repeat(filled)) + dim('░'.repeat(w - filled)) + ' ' + val;
-  };
-  const maxVal = Math.max(identical, ahead, diverged, 1);
-  await typeLine(bar('identical', identical, maxVal, green));
-  await typeLine(bar('local_ahead', ahead, maxVal, yellow));
-  await typeLine(bar('diverged', diverged, maxVal, red));
-  term.writeln('');
-  await typeLine('  latest deletion: ' + (repos[repos.length - 1]?.folder_name || '—'));
-  await typeLine('  last activity:  ' + (activities[activities.length - 1]?.timestamp || '—'));
-  term.writeln('');
-  autoScroll();
-}
-
-async function showWhoami() {
-  term.writeln('');
-  await typeLine('  ── whoami ──', magenta);
-  term.writeln('');
-  await typeLine('  runner:    ' + green('github-actions'));
-  await typeLine('  vm:        ' + yellow('ubuntu-latest (linux x64)'));
-  await typeLine('  shell:     ' + dim('bash'));
-  await typeLine('  workflow:  ' + cyan('update-feed.yml'));
-  await typeLine('  trigger:   ' + dim('schedule */30 * * * *'));
-  await typeLine('  repo:      ' + blue('bonsai/new'));
-  await typeLine('  branch:    ' + dim('gh-pages'));
-  await typeLine('  scope:     ' + yellow('data.jsonl + log.jsonl'));
-  await typeLine('  storage:   ' + dim('GH Pages (static)'));
-  term.writeln('');
-  await typeLine('  this terminal is driven by GH Actions VM');
-  await typeLine('  data flows: repos.sqlite → data.jsonl → GH Pages → browser');
-  term.writeln('');
-  autoScroll();
-}
-
-// --- toolbar buttons ---
-document.querySelectorAll('#toolbar .btn').forEach(btn => {
-  btn.addEventListener('click', async () => {
-    const cmd = btn.dataset.cmd;
-    if (cmd === 'scope') await showScope();
-    else if (cmd === 'repos') await showRepos();
-    else if (cmd === 'activity') await showActivity();
-    else if (cmd === 'dashboard') await showDashboard();
-    else if (cmd === 'whoami') await showWhoami();
-    else if (cmd === 'clear') term.clear();
-  });
-});
-
-// --- tab switching ---
-document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-  });
-});
-
-// --- interactive ---
-let inputBuf = '';
-let commandMode = false;
-
-term.onData(async (data) => {
-  if (commandMode) return;
-  const code = data.charCodeAt(0);
-  if (code === 13) {
-    commandMode = true;
-    term.writeln('');
-    const cmd = inputBuf.trim();
-    inputBuf = '';
-    if (cmd === 's' || cmd === 'scope') await showScope();
-    else if (cmd === 'r' || cmd === 'repos') await showRepos();
-    else if (cmd === 'a' || cmd === 'activity') await showActivity();
-    else if (cmd === 'd' || cmd === 'dashboard') await showDashboard();
-    else if (cmd === 'w' || cmd === 'whoami') await showWhoami();
-    else if (cmd === 'q' || cmd === 'quit') { await typeLine('  👋 bye', magenta); term.dispose(); return; }
-    else if (cmd === 'clear' || cmd === 'c') term.clear();
-    else if (cmd === 'help' || cmd === 'h') await typeLine('  [s]scope [r]repos [a]activity [d]dashboard [w]whoami [c]clear [q]quit');
-    else if (cmd) await typeLine('  unknown: ' + cmd + '  (h for help)', red);
-    term.write('  $ ');
-    commandMode = false;
-  } else if (code === 127) {
-    if (inputBuf.length > 0) { inputBuf = inputBuf.slice(0, -1); term.write('\x1b[1D \x1b[1D'); }
-  } else if (code >= 32 && code < 127) { inputBuf += data; term.write(data); }
-});
-
-setInterval(async () => { await fetchData(); }, 30000);
-
-term.write('  $ ');
-boot();
+const API='https://api.github.com';
+const out=document.getElementById('out'),input=document.getElementById('input'),form=document.getElementById('form'),token=document.getElementById('token'),authState=document.getElementById('authState');
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+function print(text='',cls=''){const d=document.createElement('div');d.className='line '+cls;d.innerHTML=esc(text);out.appendChild(d);out.scrollTop=out.scrollHeight}
+function html(text){const d=document.createElement('div');d.className='line';d.innerHTML=text;out.appendChild(d);out.scrollTop=out.scrollHeight}
+function headers(){const h={'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2026-03-10'};if(token.value.trim())h.Authorization='Bearer '+token.value.trim();return h}
+async function api(path,options={}){const r=await fetch(API+path,{...options,headers:{...headers(),...(options.headers||{})}});let data;try{data=await r.json()}catch{data=await r.text()}if(!r.ok)throw new Error((data&&data.message)||('HTTP '+r.status));return data}
+function usage(){print('GitHub Console — browser API terminal','cyan');print('');print('read:  repos | repo OWNER/REPO | issues OWNER/REPO | prs OWNER/REPO | runs OWNER/REPO');print('data:  file OWNER/REPO PATH | api GET /endpoint');print('write: api POST /repos/OWNER/REPO/issues   (JSON body required)');print('local: clear | whoami | sync | help');print('');print('例: repo bonsai/idol-lab');}
+async function repos(){const data=await api('/users/bonsai/repos?per_page=100&sort=updated');print('bonsai repositories: '+data.length,'ok');data.forEach(r=>html('<div class="repoRow"><a href="'+esc(r.html_url)+'" target="_blank">'+esc(r.full_name)+'</a><small>'+esc(r.description||'')+' · '+esc(r.language||'—')+' · ★ '+r.stargazers_count+'</small></div>'));}
+async function repo(name){const r=await api('/repos/'+name);html('<div class="result"><b>'+esc(r.full_name)+'</b><br>visibility: '+esc(r.visibility)+'<br>default: '+esc(r.default_branch)+'<br>language: '+esc(r.language||'—')+'<br>stars: '+r.stargazers_count+' · forks: '+r.forks_count+'<br><a href="'+esc(r.html_url)+'" target="_blank">open GitHub ↗</a></div>');}
+async function issues(name){const data=await api('/repos/'+name+'/issues?state=open&per_page=30');print('open issues: '+data.length,'ok');data.filter(x=>!x.pull_request).forEach(x=>html('<div class="repoRow"><a href="'+esc(x.html_url)+'" target="_blank">#'+x.number+' '+esc(x.title)+'</a><small>'+esc(x.user?.login||'')+'</small></div>'));}
+async function prs(name){const data=await api('/repos/'+name+'/pulls?state=open&per_page=30');print('open pull requests: '+data.length,'ok');data.forEach(x=>html('<div class="repoRow"><a href="'+esc(x.html_url)+'" target="_blank">#'+x.number+' '+esc(x.title)+'</a><small>'+esc(x.user?.login||'')+' · '+esc(x.head?.ref||'')+' → '+esc(x.base?.ref||'')+'</small></div>'));}
+async function runs(name){const data=await api('/repos/'+name+'/actions/runs?per_page=15');print('workflow runs: '+data.workflow_runs.length,'ok');data.workflow_runs.forEach(x=>html('<div class="repoRow">'+esc(x.name)+' · '+esc(x.status)+' / '+esc(x.conclusion||'running')+'<small>'+esc(x.head_branch||'')+' · '+esc(x.created_at)+'</small></div>'));}
+async function file(name,path){const x=await api('/repos/'+name+'/contents/'+path);if(Array.isArray(x)){print('directory: '+path);x.forEach(y=>print((y.type==='dir'?'📁 ':'📄 ')+y.path))}else if(x.content){const raw=atob(x.content.replace(/\n/g,''));print(raw.slice(0,12000),'json')}else print(JSON.stringify(x,null,2),'json')}
+async function whoami(){const x=await api('/user');print('authenticated as '+x.login,'ok')}
+async function generic(method,path,body){const opt={method};if(body){opt.headers={'Content-Type':'application/json'};opt.body=JSON.stringify(body)}const x=await api(path,opt);print(JSON.stringify(x,null,2).slice(0,18000),'json')}
+async function command(raw){const s=raw.trim();if(!s)return;print('$ '+s,'cmd');const p=s.split(/\s+/),c=p[0];try{if(c==='help'||c==='?')usage();else if(c==='clear'){out.innerHTML='';usage()}else if(c==='repos')await repos();else if(c==='repo'&&p[1])await repo(p[1]);else if(c==='issues'&&p[1])await issues(p[1]);else if(c==='prs'&&p[1])await prs(p[1]);else if(c==='runs'&&p[1])await runs(p[1]);else if(c==='file'&&p[1]&&p[2])await file(p[1],p.slice(2).join('/'));else if(c==='whoami')await whoami();else if(c==='sync'){print('sync is read-only in browser mode. Fetching bonsai/new…','warn');await repo('bonsai/new')}else if(c==='api'&&p[1]&&p[2]){let method=p[1].toUpperCase(),path=p[2];if(!path.startsWith('/'))path='/'+path;let body=null;if(p.slice(3).length)body=JSON.parse(p.slice(3).join(' '));await generic(method,path,body)}else print('unknown command. try: help','err')}catch(e){print('error: '+e.message,'err')}}
+form.addEventListener('submit',async e=>{e.preventDefault();const v=input.value;input.value='';await command(v)});
+document.querySelectorAll('[data-cmd]').forEach(b=>b.onclick=()=>command(b.dataset.cmd));
+document.getElementById('clearToken').onclick=()=>{token.value='';authState.textContent='public mode';input.focus()};token.addEventListener('input',()=>authState.textContent=token.value.trim()?'token mode':'public mode');
+usage();print('connected → GitHub REST API','ok');print('public API mode: no credential required for public repository reads','muted');print('');
 </script>
 </body>
 </html>
